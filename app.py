@@ -29,6 +29,36 @@ def data_by_country_general(countries):
 def data_by_country_per_capita(countries):
     return data_by_country(countries, 'energy_per_capita')
 
+def data_by_country_table(countries, key):
+    data = []
+    for country in countries:
+        for d in read_data[country]['data']:
+            dt = {}
+            if key in d.keys():
+                dt['year'] = d['year']
+                # for country in countries:
+                dt[country] = round(d[key], 1)
+                data.append(dt)
+    if len(countries) == 1:
+        return data
+    else:
+        table_data = []
+        for d in data:
+            if countries[0] in d.keys():
+                table_data.append(d)
+        for country in countries[1:]:
+            for td in table_data:
+                for d in data:
+                    if country in d.keys() and td['year'] == d['year']:
+                        td[country] = d[country]
+        return table_data
+
+def data_by_country_general_table(countries):
+    return data_by_country_table(countries, 'electricity_generation')
+
+def data_by_country_per_capita_table(countries):
+    return data_by_country_table(countries, 'energy_per_capita')
+
 def data_by_fuel(country, fuel_types):
     data_return = []
     for d in read_data[country]['data']:
@@ -40,6 +70,18 @@ def data_by_fuel(country, fuel_types):
                 dt['fuel_type'] = fuel
                 data_return.append(dt)
     return pandas.json_normalize(data_return)
+
+def data_by_fuel_table(country, fuel_types):
+    data_return = []
+    for d in read_data[country]['data']:
+        dt = {}
+        dt['year'] = d['year']
+        for fuel in fuel_types:
+            if fuel in d.keys():
+                dt[fuel] = round(d[fuel], 1)
+        if len(dt.keys()) > 1:
+            data_return.append(dt)
+    return data_return
 
 
 app = dash.Dash(__name__,
@@ -137,7 +179,16 @@ tab1_content = [
             html.Div(country_selector1),
         ])
     ]),
-    dbc.Row(dcc.Graph(id='generation_by_country'))
+    dbc.Tabs([
+        dbc.Tab(
+            dbc.Row(dcc.Graph(id='generation_by_country')),
+            label='Graph'
+        ),
+        dbc.Tab(
+            dbc.Row(html.Div(id='generation_by_country_table')),
+            label='Table'
+        )
+    ]),
 ]
 
 tab2_content = [
@@ -161,8 +212,8 @@ tab2_content = [
             label='Graph'
         ),
         dbc.Tab(
-            html.Div('Table'),
-            label='Tab'
+            dbc.Row(html.Div(id='fuel_types_table')),
+            label='Table'
         )
     ]),
 ]
@@ -178,7 +229,16 @@ tab3_content = [
             html.Div(country_selector3),
         ])
     ]),
-    dbc.Row(dcc.Graph(id='generation_per_capita'))
+    dbc.Tabs([
+        dbc.Tab(
+            dbc.Row(dcc.Graph(id='generation_per_capita')),
+            label='Graph'
+        ),
+        dbc.Tab(
+            dbc.Row(html.Div(id='generation_per_capita_table')),
+            label='Table'
+        )
+    ]),
 ]
 
 tab4_content = [
@@ -196,9 +256,9 @@ app.layout = html.Div(
     [
         dbc.Row(
             dbc.Col(
-                html.H2('Electricity generation dash', style={'margin-top': '20px'}),
+                html.H2('Electricity generation dashboard', style={'margin-top': '20px'}),
                 width={"size": 6, "offset": 3},
-                style={'margin-bottom': '50px'},
+                style={'margin-bottom': '30px'},
             )
         ),
 
@@ -206,7 +266,7 @@ app.layout = html.Div(
             dbc.Tab(tab1_content, label='Electricity generation by countries', style={'margin-top': '20px'}),
             dbc.Tab(tab2_content, label='Electricity generation by source of energy', style={'margin-top': '20px'}),
             dbc.Tab(tab3_content, label='Electricity generation per capita', style={'margin-top': '20px'}),
-            dbc.Tab(tab4_content, label='Contacts', style={'margin-top': '20px'})
+            dbc.Tab(tab4_content, label='About', style={'margin-top': '20px'})
         ])
     ],
     style={'margin-left': '50px',
@@ -215,11 +275,16 @@ app.layout = html.Div(
 
 
 # Callbacks
-@app.callback(
-    Output(
-        component_id='generation_by_country',
-        component_property='figure'
-    ),
+@app.callback([
+        Output(
+            component_id='generation_by_country',
+            component_property='figure'
+        ),
+        Output(
+            component_id='generation_by_country_table',
+            component_property='children'
+        )
+    ],
     [
         Input(
             component_id='range-slider1',
@@ -232,8 +297,6 @@ app.layout = html.Div(
     ]
 )
 def electricity_by_country(year, country):
-    if len(country) == 0:
-        return
     dt = data_by_country_general(country)
     updated_data = dt[(dt['year'] > year[0]) & (dt['year'] < year[1])]
     fig = px.line(updated_data,
@@ -241,13 +304,23 @@ def electricity_by_country(year, country):
                   y='electricity_generation',
                   title='Electricity generation, TWh',
                   color='country')
-    return fig
+    table_data = data_by_country_general_table(country)
+    table_col_names = [{'name': i, 'id': i} for i in country]
+    table_col_names.insert(0, {'name': 'Year', 'id': 'year'})
+    table = dash_table.DataTable(data=table_data,
+                                 columns=table_col_names)
+    return fig, table
 
-@app.callback(
-    Output(
-        component_id='generation_by_fuel',
-        component_property='figure'
-    ),
+@app.callback([
+        Output(
+            component_id='generation_by_fuel',
+            component_property='figure'
+        ),
+        Output(
+            component_id='fuel_types_table',
+            component_property='children'
+        )
+    ],
     [
         Input(
             component_id='range-slider2',
@@ -273,13 +346,23 @@ def electricity_by_fuel(year, fuel_type, country):
                   y=fuel_type,
                   title='Electricity generation by fuel, TWh',
                   color='fuel_type')
-    return fig
+    table_data = data_by_fuel_table(country, fuel_type)
+    fuel_types_col_names = [{'name': d['label'], 'id': d['value']} for d in fuel_types_options if d['value'] in fuel_type]
+    fuel_types_col_names.insert(0, {'name': 'Year', 'id': 'year'})
+    table = dash_table.DataTable(data=table_data,
+                                 columns=fuel_types_col_names)
+    return fig, table
 
-@app.callback(
-    Output(
-        component_id='generation_per_capita',
-        component_property='figure'
-    ),
+@app.callback([
+        Output(
+            component_id='generation_per_capita',
+            component_property='figure'
+        ),
+        Output(
+            component_id='generation_per_capita_table',
+            component_property='children'
+        )
+    ],
     [
         Input(
             component_id='range-slider3',
@@ -299,14 +382,15 @@ def electricity_by_country_per_capita(year, country):
     fig = px.line(updated_data,
                   x='year',
                   y='energy_per_capita',
-                  title='Electricity generation, TWh',
+                  title='Electricity generation per capita, KWh',
                   color='country')
-    return fig
+    table_data = data_by_country_per_capita_table(country)
+    table_col_names = [{'name': i, 'id': i} for i in country]
+    table_col_names.insert(0, {'name': 'Year', 'id': 'year'})
+    table = dash_table.DataTable(data=table_data,
+                                 columns=table_col_names)
+    return fig, table
 
 
 if __name__ == '__main__':
     app.run_server(debug=True)
-
-# Добавить в графики по странам тип вырабатываемой энергии. Добавить сравнение стран и весь мир
-# Сделать то же на душу населения
-# Население по странам
